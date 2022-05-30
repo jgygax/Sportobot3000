@@ -37,7 +37,7 @@ def command(update, context):
 
         result = process.extractOne(command, list(
             available_commands.keys()), scorer=fuzz.ratio)
-        print(result)
+        print(result, ".....")
         if result[1] < 50:
             out = "Oops, I'm not sure which command you mean. Possible options are:\n" + instructions()
             update.message.reply_text(
@@ -211,6 +211,7 @@ def keyboard_response(update, context):
     # bot.deleteMessage(chat_id=query.message.chat_id,
     #                   message_id=query.message.message_id)
 
+    print(action, "**")
     if action == "training":
         print("-- add training --")
         # context.bot.send_message(user_id, "Wie lang besch go schwimme?",
@@ -221,22 +222,23 @@ def keyboard_response(update, context):
 
     elif action == "list_training":
         training_list(update, context, user_id, value)
-
     elif action == "list_all":
         training_list_all(update, context, user_id, value)
+    elif action == "highscore":
+        get_highscore(update, context, user_id, value)
 
     else:
         add_training(update, context, action, value)
 
 
-def highscore(bot, update):
+def highscore(update, context):
     choices = [["1 Woche", "1 Monet"], ["De Monet", "∞"]]
-    show_keyboard(bot, update, choices, "highscore", "Set wenn?")
+    show_keyboard(update, context, choices, "highscore", "Set wenn?")
 
 
 def list_training(update, context):
     choices = [["1 Woche", "1 Monet"], ["De Monet", "∞"]]
-    show_keyboard(update, context, choices, "list_all", "Set wenn?")
+    show_keyboard(update, context, choices, "list_training", "Set wenn?")
 
 
 def list_all(update, context):
@@ -284,6 +286,109 @@ def training_list_all(update, context, user_id, value):
 
     for name, uid in zip(users, user_ids):
         print_user(update, context, uid, start_date, name)
+
+
+def get_highscore(update, context, user_id, value):
+    global df
+
+    if value == "1 Woche":
+        start_date = datetime.now() + relativedelta(weeks=-1)
+        start_date = start_date.timestamp()
+    elif value == "1 Monet":
+        start_date = datetime.now() + relativedelta(months=-1)
+        start_date = start_date.timestamp()
+    elif value == "De Monet":
+        start_date = datetime.today().replace(day=1)
+        start_date = start_date.timestamp()
+    else:
+        start_date = 0
+
+    users = list(set(df.user_name))
+    user_ids = []
+    for n in users:
+        user_ids.append(list(set(df.loc[df['user_name'] == n].user_id))[0])
+
+    highscores = {
+        "time_all": {
+            "name": [],
+            "value": -1
+        },
+        "count": {
+            "name": [],
+            "value": -1
+        },
+        "time_run": {
+            "name": [],
+            "value": -1
+        },
+        "time_swim": {
+            "name": [],
+            "value": -1
+        },
+    }
+    for name, uid in zip(users, user_ids):
+        h = get_user_highscores(update, context, uid, start_date, name)
+        for key, value in highscores.items():
+            if value["value"] < h[key]:
+                value["name"] = [h["name"]]
+                value["value"] = h[key]
+            elif value["value"] == h[key]:
+                value["name"].append(h["name"])
+        print(h)
+    print("________________ ")
+    print(highscores)
+
+    names = ["Number of training", "Total Training Time",
+             "Total Jogging Time", "Total Swimming Time"]
+    keys = ["count", "time_all", "time_run", "time_swim"]
+
+    message = "HIGHSCORES: \n"
+
+    for n, k in zip(names, keys):
+        message += "\n" + n + ":\n\t\t\t"
+        for i, name in enumerate(highscores[k]["name"]):
+            message += name
+            if i != len(highscores[k]["name"])-1:
+                message += " und "
+        message += ": " + str(int(highscores[k]["value"]))
+        if k != "count":
+            message += " min"
+        message += "\n"
+
+    context.bot.send_message(update.effective_user.id, message)
+
+
+def get_user_highscores(update, context, user_id, start_date, name=""):
+    global df
+
+    highscores = {
+        "userid": user_id,
+        "name": name,
+        "time_all": 0,
+        "count": 0,
+        "time_run": 0,
+        "time_swim": 0,
+    }
+
+    cnt = 1
+    for idx, row in df.iterrows():
+        if row.user_id == int(user_id):
+            if not row.training_type == "nan":
+                timestamp = row.date
+
+                if timestamp >= start_date:
+                    try:
+                        time = float(row.training_duration.split("min")[0])
+                    except:
+                        time = float(row.training_duration.split("h")[0])
+                    highscores["time_all"] += time
+                    highscores["count"] += 1
+
+                    if row.training_type == "jogge":
+                        highscores["time_run"] += time
+                    elif row.training_type == "schwimme":
+                        highscores["time_swim"] += time
+    return highscores
 
 
 def print_user(update, context, user_id, start_date, name=""):
@@ -362,6 +467,7 @@ table_name = "sport.csv"
 available_commands = {"training": (training, "Zeig was trainiert hesch!"),
                       "highscore": (highscore, "Wer esch am sportlichste?"),
                       "list_training": (list_training, "Was hesch so gmacht?"),
+                      "list_all": (list_all, "Was hend di andere so gmacht?"),
                       "delete": (delete, "Falls zvell ageh hesch."),
                       "undelete": (undelete, "Falls es doch gmacht gha hesch."),
                       "weight": (get_weight, "En Gwichtstracker."),
